@@ -1,0 +1,21 @@
+resources:
+  - ../../base
+configMapGenerator:
+  - name:  env-sampleapp
+    behavior: merge
+    literals:
+    - NETDOCUMENTS_REGION=dev
+    - KEY_VAULT_NAME=nd-uscq-sampleapp-kv
+images:
+  - name: sampleapp
+    newName: nduscqcr.azurecr.io/modsnd/sampleapp
+    newTag: junk
+patches:
+  - path: ./hpa.yaml
+  - target:
+      kind: Ingress
+      name: sampleapp
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: sampleapp-qa.netdocuments.com

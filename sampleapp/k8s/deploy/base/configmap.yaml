@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+data:
+  NETDOCUMENTS_REGION: dev
+  KEY_VAULT_NAME: nd-usw3d-sampleapp-kv
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  labels:
+    name: env-sampleapp
+  name: env-sampleapp

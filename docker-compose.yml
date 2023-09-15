@@ -1,0 +1,30 @@
+version: '3.4'
+
+services:
+  sampleapp:
+    image: ${DOCKER_REGISTRY}sampleapp
+    build:
+      context: sampleapp
+      dockerfile: Dockerfile
+    networks:
+    - sampleapp-net
+    
+  # sampleappalt:
+  #   image: ${DOCKER_REGISTRY}sampleappalt
+  #   build:
+  #     context: sampleappAlt
+  #     dockerfile: Dockerfile
+  #   networks:
+  #   - sampleapp-net
+  
+  # sampleappworker:
+  #   image: ${DOCKER_REGISTRY}sampleappworker
+  #   build:
+  #     context: sampleappWorker
+  #     dockerfile: Dockerfile
+  #   networks:
+  #   - sampleapp-net
+
+networks:
+  sampleapp-net:
+    name: sampleapp-network

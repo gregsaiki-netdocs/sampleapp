@@ -1,0 +1,110 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    deployment: sampleapp
+  name: sampleapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      pod: sampleapp
+  strategy:
+    rollingUpdate:
+      # maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        pod: sampleapp
+        aadpodidbinding: podidentity
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: pod
+                      operator: In
+                      values:
+                        - sampleapp
+                topologyKey: kubernetes.io/hostname
+      restartPolicy: Always
+      containers:
+        - name: sampleapp
+          image: sampleapp
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http-port
+              protocol: TCP
+          resources: {}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http-port
+            periodSeconds: 30
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: http-port
+            periodSeconds: 60
+            timeoutSeconds: 10
+            initialDelaySeconds: 10
+          env:
+            - name: NETDOCUMENTS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  key: NETDOCUMENTS_REGION
+                  name: env-sampleapp
+            - name: KEY_VAULT_NAME
+              valueFrom:
+                configMapKeyRef:
+                  key: KEY_VAULT_NAME
+                  name: env-sampleapp
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Development
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    service: sampleapp
+  name: sampleapp
+spec:
+  ports:
+    - name: sampleapp-listener
+      protocol: TCP
+      port: 80
+      targetPort: http-port
+  selector:
+    pod: sampleapp
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress 
+metadata:
+  name: sampleapp
+  labels:
+    ingress: sampleapp
+  annotations:
+    # nginx.ingress.kubernetes.io/rewrite-target: /$1
+    kubernetes.io/ingress.class: nginx
+spec:
+  # ingressClassName: nginx
+  rules:
+  - host: sampleapp.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: sampleapp
+            port: 
+              number: 80    
+

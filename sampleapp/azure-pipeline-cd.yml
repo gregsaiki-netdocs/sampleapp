@@ -1,0 +1,79 @@
+# Deploy to Azure Kubernetes Service
+# Build and push image to Azure Container Registry; Deploy to Azure Kubernetes Service
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+trigger: none
+
+resources:
+  repositories:
+    - repository: ACRPromotion
+      type: git
+      name: Cloud Ops/ACR Promotion
+      ref: refs/tags/v4.1.0
+    - repository: KubernetesDeploy
+      type: git
+      name: Cloud Ops/Kubernetes Deploy
+      ref: refs/tags/v1.1.0
+      # ref: refs/heads/prod_apim
+    - repository: apiops-templates
+      type: git
+      name: ApiOps/apiops-templates
+  pipelines:
+    - pipeline: K8SManifests
+      source: DataTablesService # Which pipeline does the artifact come from
+      branch: main # which branch should the build be from
+
+pool:
+  name: "Linux"
+
+variables:
+  - name: stackName
+    value: 'modsnd'
+  - name: namespace
+    value: 'sampleapp'
+  - name: imageName
+    value: 'sampleapp'
+  - template: variables/service-connection-names.yaml@apiops-templates
+
+stages:
+  # Deploy to stage
+  - template: stage-kubernetes-deploy.yml@KubernetesDeploy
+    parameters:
+      tier: "stage"
+      stackName: "${{ variables.stackName }}"
+      imageName: $(imageName)
+      appName: $(imageName)
+      promotion: true
+      publishAPIM: true
+      namespace: $(namespace)
+      #Each new manifest must be placed "some path/tier/region/"
+      #Note that only "some path" needs to be indicated as the template will automatically add tier/region/ based on the environment.
+      manifests:
+        - path: "$(Pipeline.Workspace)/K8SManifests/k8s/deploy/env"
+          jobName: "mainDeploy"
+          containerName: $(stackName)/$(imageName)
+          containerTag: $(resources.pipeline.K8SManifests.runName)
+
+  #Deploy to prod
+  - template: stage-kubernetes-deploy.yml@KubernetesDeploy
+    parameters:
+      tier: "prod"
+      dependsOn: "Deploy_stage"
+      stackName: "${{ variables.stackName }}"
+      imageName: $(imageName)
+      appName: $(imageName)
+      promotion: true
+      publishAPIM: true
+      namespace: $(namespace)
+      #Each new manifest must be placed "some path/tier/region/"
+      #Note that only "some path" needs to be indicated as the template will automatically add tier/region/ based on the environment.
+      manifests:
+        - path: "$(Pipeline.Workspace)/K8SManifests/k8s/deploy/env"
+          jobName: "mainDeploy"
+          containerName: $(stackName)/$(imageName)
+          containerTag: $(resources.pipeline.K8SManifests.runName)
+      regions:
+        - US
+        # - UK
+        # - DE
+        # - CA
+        # - AU

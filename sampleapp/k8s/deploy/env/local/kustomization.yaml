@@ -1,0 +1,11 @@
+resources:
+  - ../../base
+configMapGenerator:
+  - name:  env-sampleapp
+    behavior: merge
+    literals:
+    - NETDOCUMENTS_REGION=local
+images:
+  - name: sampleapp
+    newName: sampleapp
+    newTag: latest

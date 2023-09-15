@@ -1,0 +1,19 @@
+version: '3.4'
+
+services:
+  sampleapp:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "8080:8080"
+  # sampleappalt:
+  #   environment:
+  #     - ASPNETCORE_ENVIRONMENT=Development
+  #     - DOCMODNUM_URL=http://sampleapp:8080/
+  #   ports:
+  #     - "8081:8080"
+  # sampleappworker:
+  #   environment:
+  #   - DOTNET_ENVIRONMENT=Development
+  #   - PROBE_DIRECTORY=/tmp
+

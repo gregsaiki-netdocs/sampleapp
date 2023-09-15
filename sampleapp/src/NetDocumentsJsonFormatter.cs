@@ -1,0 +1,1 @@
+../../../serilogformatter/NetDocumentsJsonFormatter.cs

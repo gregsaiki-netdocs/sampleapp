@@ -1,0 +1,214 @@
+name: 1.0.$(Year:yy)$(DayOfYear).$(Rev:r)
+
+pool:
+  name: Linux
+
+trigger:
+- main
+
+resources:
+  repositories:
+  - repository: self
+  - repository: netd-templates
+    type: git
+    name: After Party/BuildTools
+  - repository: kubernetes_deploy
+    type: git
+    name: Cloud Ops/Kubernetes Deploy
+    ref: refs/tags/v0.0.11
+
+parameters:
+- name: deployToDev
+  displayName: Deploy To Dev
+  type: boolean
+  default: false
+- name: deployToQA
+  displayName: Deploy To QA
+  type: boolean
+  default: false
+
+variables:
+- name: devACR
+  value: 'dev-acr-usw3d'
+- name: devACRUrl
+  value: 'ndusw3dcr.azurecr.io'
+- name: devAKS
+  value: 'sampleapp-dev-aks'
+- name: qaACR
+  value: 'qa-acr'
+- name: qaACRUrl
+  value: 'nduscqcr.azurecr.io'
+- name: qaAKS
+  value: 'sampleapp-qa-aks'
+- name: stackName
+  value: 'modsnd'
+# The namespace value may need changed. The terraform will create a namespace of sampleapp, so
+# this is in agreement with that.
+- name: namespace
+  value: 'sampleapp'
+- name: imageName
+  value: 'sampleapp'
+- name: pushImage 
+  value: $[or(eq(${{parameters.deployToDev}}, true), eq(variables['Build.SourceBranch'], 'refs/heads/main'))]
+- name: willDeployToDev
+  value: $[or(eq(${{parameters.deployToDev}}, true), eq(variables['Build.SourceBranch'], 'refs/heads/main'))]
+- name: willDeployToQA
+  value: $[or(and(eq(${{parameters.deployToDev}}, true), eq(${{parameters.deployToQA}}, true)), eq(variables['Build.SourceBranch'], 'refs/heads/main'))]
+
+stages:
+- stage: Build
+  jobs:
+  - job: Build
+    steps:
+    - task: SOOS-Security-Analysis@0
+      condition: contains(variables['build.sourceBranch'], 'refs/heads/main')
+      displayName: Security Analysis
+      continueOnError: true
+      inputs:
+        apiKey: 'OTdhYmQwZmUtNjQ1MC00NmMyLWEwNWEtOTBhNzNhZTc0YmI0'
+        clientId: '7jc40i43q'
+        project: 'gregk8service'
+        scanType: 'SCA'
+        outputFormat: 'SARIF'
+        path: '$(Build.SourcesDirectory)/sampleapp'
+        packageManagers: 'NuGet'
+        waitForScan: false
+
+    - task: DockerInstaller@0
+      displayName: 'Install Docker 20.10.8'
+      inputs:
+        dockerVersion: 20.10.8
+      enabled: false
+
+    - task: Docker@0
+      displayName: 'Pull latest asp.net 7.0-alpine image'
+      inputs:
+        action: 'Run a Docker command'
+        customCommand: 'pull mcr.microsoft.com/dotnet/aspnet:7.0-alpine'
+        enforceDockerNamingConvention: false
+
+    - task: Docker@0
+      displayName: 'Pull latest .net SDK 7.0-alpine image'
+      inputs:
+        action: 'Run a Docker command'
+        customCommand: 'pull mcr.microsoft.com/dotnet/sdk:7.0-alpine'
+        enforceDockerNamingConvention: false
+
+    - template: steps/version-json.v1.yml@netd-templates
+
+    - script: |
+        cp version.json $(imageName)
+      displayName: 'Copy version.json to $(imageName) directory'
+
+    - script: |
+        docker build -t $(devACRUrl)/$(stackName)/$(imageName):$(Build.BuildId) -t $(devACRUrl)/$(stackName)/$(imageName):latest -f $(imageName)/Dockerfile ./$(imageName)
+      displayName: 'Docker build'
+
+    - task: prisma-cloud-compute-scan@3
+      displayName: 'Prisma Cloud Compute Scan'
+      inputs:
+        twistlockService: 'prisma-cloud-scan'
+        artifact: '$(devACRUrl)/$(stackName)/$(imageName):$(Build.BuildId)'
+
+    - task: Docker@2
+      inputs:
+        containerRegistry: '$(devACR)'
+        command: 'login'
+      displayName: 'Docker Login'
+
+    - task: Docker@2
+      displayName: push docker image to Dev Registry
+      condition: and(succeeded(), eq(variables.pushImage, 'true'))
+      inputs:
+        containerRegistry: '$(devACR)'
+        repository: '$(stackName)/$(imageName)'
+        command: 'push'
+        tags: |
+          $(Build.BuildId)
+          latest
+
+    - script: |
+        docker rmi $(devACRUrl)/$(stackName)/$(imageName)
+        docker rmi $(docker images $(devACRUrl)/$(stackName)/$(imageName) -a -q)
+        docker image prune --force
+      condition: succeededOrFailed()
+      displayName: Prune docker images
+
+    - task: PublishPipelineArtifact@1
+      inputs:
+        targetPath: $(imageName)/k8s
+        artifact: 'manifests'
+        publishLocation: 'pipeline'
+    
+    # - task: PublishPipelineArtifact@1
+    #   inputs:
+    #     targetPath: /terraform
+    #     artifact: 'terraform'
+    #     publishLocation: 'pipeline'
+
+- template: kubernetes-deploy.yml@kubernetes_deploy
+  parameters:
+    name: 'DeployDev'
+    dependsOn: 'Build'
+    shouldDeploy: and(succeeded(), eq(variables['willDeployToDev'], true))
+    aksEnvironment: 'sampleapp-dev'
+    aksServiceConnection: $(devAKS)
+    containers:
+      - '$(devACRUrl)/$(stackName)/$(imageName):$(Build.BuildId)'
+    manifests:
+      - path: '$(Pipeline.Workspace)/manifests/deploy/env/dev/'
+        jobName: 'mainDeploy'
+    namespace: $(namespace)
+
+# - stage: PromoteToQA
+#   dependsOn: 'DeployDev'
+#   condition: and(succeeded(), eq(variables.willDeployToQA, true))
+#   jobs:
+#   - job: PullImage
+#     displayName: Pull image from Lab ACR and push to QA ACR
+
+#     steps:
+#     - task: Docker@2
+#       inputs:
+#         containerRegistry: '$(devACR)'
+#         command: 'login'
+#       displayName: 'Docker Login'
+
+#     - script: |
+#         docker pull $(devACRUrl)/$(stackName)/$(imageName):$(Build.BuildId)
+#       displayName: "Pull docker image to cache"
+
+#     - script: |
+#         docker tag $(devACRUrl)/$(stackName)/$(imageName):$(Build.BuildId) $(qaACRUrl)/$(stackName)/$(imageName):latest
+#         docker tag $(devACRUrl)/$(stackName)/$(imageName):$(Build.BuildId) $(qaACRUrl)/$(stackName)/$(imageName):$(Build.BuildId)
+#       displayName: "Tag QA Image"
+
+#     - task: Docker@2
+#       inputs:
+#         containerRegistry: '$(qaACR)'
+#         command: 'login'
+#       displayName: 'Docker Login'
+
+#     - task: Docker@2
+#       displayName: push docker image to QA Registry
+#       inputs:
+#         containerRegistry: '$(qaACR)'
+#         repository: '$(stackName)/$(imageName)'
+#         command: 'push'
+#         tags: |
+#           $(Build.BuildId)
+#           latest
+
+# - template: kubernetes-deploy.yml@kubernetes_deploy
+#   parameters:
+#     name: 'DeployQA'
+#     dependsOn: 'PromoteToQA'
+#     shouldDeploy: and(succeeded(), eq(variables['willDeployToQA'], true))
+#     aksEnvironment: 'builds-qa'
+#     aksServiceConnection: $(qaAKS)
+#     containers:
+#       - '$(qaACRUrl)/$(stackName)/$(imageName):$(Build.BuildId)'
+#     manifests:
+#       - path: '$(Build.SourcesDirectory)/$(imageName)/k8s/deploy/env/qa/'
+#         jobName: 'mainDeploy'
+#     namespace: $(namespace)
